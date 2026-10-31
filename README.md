@@ -66,16 +66,6 @@ The repo includes `render.yaml` for [Render](https://render.com). In Render, cho
 | `static/` | The web page: `js/app.js` (views), `js/audio.js` (playback and hands-free mic), `js/avatar.js` (faces), `i18n/` (English and Arabic text) |
 | `tests/` | Offline tests for parsing, the number rules, voice turns and arithmetic |
 
-### Why replies are faster than the first version
-
-The first version took 5–6 seconds because it did everything one step at a time: transcribe, then reply, then voice the whole reply, then reload the page. Now:
-
-1. **One call instead of two.** The recording goes straight to the chat model, which writes down what it heard and replies in the same call.
-2. **Streaming.** The reply arrives word by word. As soon as the first sentence is complete, it's sent off to be voiced while the rest is still being written.
-3. **Sentence-by-sentence audio.** The browser starts playing sentence one while later sentences are still on their way.
-4. **Fastest settings.** The chat model runs with minimal thinking, and the fastest voice provider is tried first.
-
-What's left is mostly the ~0.8 seconds of silence the app waits for before deciding you've finished talking (`silenceMs` in `static/js/audio.js`), plus network time. For sub-second replies, the next step would be Gemini's Live API, which streams audio both ways continuously.
 
 ### Negotiation limits are enforced in code
 
@@ -117,10 +107,6 @@ If the AI breaks a rule, its reply is thrown away and regenerated with a correct
 - a manual check with a screen reader (NVDA, VoiceOver),
 - testing by disabled users,
 - a review of the hands-free mode with assistive technology.
-
-## How it was built
-
-I built this over three iterations in one week: a text-only Streamlit prototype, then voice and an animated avatar, then a rebuild on FastAPI with a hand-built front end, because Streamlit couldn't support hands-free voice, low latency or full keyboard and screen-reader access. The git history keeps the prototype so the change is visible.
 
 ## Known limits
 
