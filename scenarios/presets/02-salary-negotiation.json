@@ -1,0 +1,29 @@
+{
+  "id": "salary-negotiation",
+  "category": "negotiation",
+  "difficulty": "medium",
+  "title": {"en": "Job offer negotiation", "ar": "التفاوض على عرض العمل"},
+  "summary": {"en": "You've been offered a job. Negotiate the salary and package with HR.",
+              "ar": "حصلت على عرض عمل. تفاوض على الراتب والمزايا مع الموارد البشرية."},
+  "brief": {"en": "You've been offered a Business Analyst job at Gulf Horizon Logistics with a basic salary of QAR 14,000 a month. You'd like QAR 16,500. You have a strong degree and a year of internship experience, and another company is interviewing you. You're speaking with Mariam, the HR Director.",
+            "ar": "حصلت على عرض لوظيفة محلّل أعمال في شركة أفق الخليج للخدمات اللوجستية براتب أساسي قدره 14,000 ريال شهريًا. تريد 16,500 ريال. لديك شهادة قوية وخبرة تدريب لمدة عام، وهناك شركة أخرى تجري معك مقابلات. أنت تتحدّث مع مريم، مديرة الموارد البشرية."},
+  "goal": "Negotiate respectfully and with evidence: express enthusiasm, justify the number with skills and market data, ask what flexibility exists, look beyond basic salary (signing bonus, training, start date), and confirm the final package clearly without damaging the relationship.",
+  "character": {"name": {"en": "Mariam", "ar": "مريم"},
+                "role": {"en": "HR Director, Gulf Horizon Logistics", "ar": "مديرة الموارد البشرية، أفق الخليج للخدمات اللوجستية"},
+                "look": "woman-hijab"},
+  "opening": {"en": "Hello, thanks for making time. We were really impressed in the interviews, and I hope you've had a chance to look at the offer. What are your thoughts?",
+              "ar": "مرحبًا، شكرًا على وقتك. لقد أُعجبنا بك كثيرًا في المقابلات، وأتمنى أن تكون قد اطّلعت على العرض. ما رأيك؟"},
+  "persona": "You are warm and professional, and you genuinely want this candidate to join, but you have a budget and internal fairness to protect. You start by saying the offer is competitive for a first full-time role. You respond well to enthusiasm, specific evidence (skills, market rates, the competing process) and creative options; you respond badly to ultimatums or vague 'I deserve more'. When you can't move on basic salary, you look for other ways to make the package work.",
+  "private_info": "The approved range for this role goes up to QAR 16,000 basic. Above that you need sign-off you won't get. You can also offer a one-off signing bonus of up to QAR 5,000, a QAR 3,000 training budget, or a later start date. The candidate is your first choice, and you need an answer by the end of the week.",
+  "rubric": [
+    "Showed enthusiasm for the role while negotiating",
+    "Justified the request with specific evidence",
+    "Asked questions to find out where there was flexibility",
+    "Considered the whole package, not just basic salary",
+    "Confirmed the final terms clearly and kept the relationship positive"
+  ],
+  "offer": {"label": "basic salary", "unit": "QAR/month", "start": 14000, "limit": 16000, "max_step": 500,
+            "direction": "up", "target": 16500, "multiplier": 12, "multiplier_label": "months"},
+  "reveal": {"en": "Mariam could go up to QAR 16,000 basic, plus a signing bonus of up to QAR 5,000, a QAR 3,000 training budget, or a later start date. You were her first choice.",
+             "ar": "كان بإمكان مريم رفع الراتب الأساسي حتى 16,000 ريال، مع مكافأة توقيع تصل إلى 5,000 ريال، أو ميزانية تدريب بقيمة 3,000 ريال، أو تأجيل موعد البدء. كنت خيارها الأول."}
+}

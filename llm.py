@@ -1,343 +1,345 @@
 """
-The model-access layer: every AI call in the app goes through ask_model().
+The model-access layer: every AI call in the app goes through this file.
 
-Why one place?
-- Swapping provider or model means changing this file (and config.py) only.
-- Cost, token and timing logging happens automatically for every call.
-- Retries and friendly failures are handled once, not in every screen.
+- chat_stream():  the character's reply, streamed word by word (optionally hearing audio)
+- complete_json(): one-shot JSON answers (grading, drafting scenarios)
+- transcribe():   speech -> text, used only as a fallback
+- speak():        text -> speech, trying each voice provider in order
 
-Privacy choice: we log numbers (tokens, cost, time), never what the student typed.
+Every call is logged with tokens, estimated cost and time. What students say is never logged.
+Set LLM_PROVIDER=fake to run everything offline with canned replies (for testing).
 """
 
+import asyncio
+import base64
 import csv
+import json
 import os
+import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 
 import config
 
-load_dotenv()  # reads GEMINI_API_KEY from a local .env file, if there is one
+load_dotenv()
+
+
+class ModelUnavailable(Exception):
+    """The model couldn't be reached after retries."""
 
 
 @dataclass
-class ModelReply:
-    text: str
-    ok: bool                  # False means the call failed and text is empty
+class Usage:
     input_tokens: int = 0
     output_tokens: int = 0
     cost_usd: float = 0.0
     seconds: float = 0.0
+    extra: dict = field(default_factory=dict)
 
 
-class ModelUnavailable(Exception):
-    """Raised when the model can't be reached after retries."""
+def fake_mode():
+    return os.getenv("LLM_PROVIDER", "gemini") == "fake"
 
 
-# ---------------------------------------------------------------------------
-# API key: never in the code. Locally it comes from .env, on Streamlit Cloud
-# from the app's Secrets settings.
-# ---------------------------------------------------------------------------
-def _get_api_key():
-    key = os.getenv("GEMINI_API_KEY")
-    if key:
-        return key
-    try:
-        import streamlit as st
-        return st.secrets.get("GEMINI_API_KEY")
-    except Exception:
-        return None
+def estimate_cost(model, tin, tout):
+    p = config.PRICES.get(model)
+    return (tin * p["input"] + tout * p["output"]) / 1_000_000 if p else 0.0
 
 
 _client = None
 
 
-def _gemini_client():
-    # Created once and reused, instead of a new connection per message.
+def _gemini():
     global _client
     if _client is None:
         from google import genai
         from google.genai import types
-
-        key = _get_api_key()
+        key = os.getenv("GEMINI_API_KEY")
         if not key:
             raise ModelUnavailable("No GEMINI_API_KEY set. See README.")
-        _client = genai.Client(
-            api_key=key,
-            http_options=types.HttpOptions(timeout=config.REQUEST_TIMEOUT_SECONDS * 1000),
-        )
+        _client = genai.Client(api_key=key, http_options=types.HttpOptions(
+            timeout=config.REQUEST_TIMEOUT_SECONDS * 1000))
     return _client
 
 
-def estimate_cost(model, input_tokens, output_tokens):
-    price = config.PRICES.get(model)
-    if not price:
-        return 0.0
-    return (input_tokens * price["input"] + output_tokens * price["output"]) / 1_000_000
-
-
-# ---------------------------------------------------------------------------
-# The one public function
-# ---------------------------------------------------------------------------
-def ask_model(task, system, messages, session_id, json_output=False, temperature=0.8):
-    """
-    task:       "chat" or "grade" - picks the model from config.MODELS
-    system:     the hidden instructions (persona, rules)
-    messages:   list of {"role": "user" | "assistant", "content": "..."}
-    session_id: links this call to one student session in the logs
-    """
-    model = config.MODELS[task]
-    provider = os.getenv("LLM_PROVIDER", "gemini")
-
-    last_error = None
-    for attempt in range(config.RETRIES + 1):
-        start = time.time()
-        try:
-            if provider == "fake":
-                text, tin, tout = _call_fake(task, messages)
-            else:
-                text, tin, tout = _call_gemini(model, system, messages, json_output, temperature)
-
-            reply = ModelReply(
-                text=text,
-                ok=True,
-                input_tokens=tin,
-                output_tokens=tout,
-                cost_usd=estimate_cost(model, tin, tout),
-                seconds=round(time.time() - start, 2),
-            )
-            _log_call(session_id, task, model, reply, status="ok")
-            return reply
-
-        except ModelUnavailable:
-            raise
-        except Exception as e:  # rate limits, timeouts, server errors
-            last_error = e
-            _log_call(session_id, task, model, ModelReply("", False, seconds=round(time.time() - start, 2)),
-                      status=f"error:{type(e).__name__}")
-            if attempt < config.RETRIES:
-                time.sleep(2 ** attempt)  # wait 1s, then 2s: "exponential backoff"
-
-    raise ModelUnavailable(str(last_error))
-
-
-def _call_gemini(model, system, messages, json_output, temperature):
+def _contents(history, audio=None):
+    """Our message list -> Gemini's format. Gemini calls the AI's turns 'model'."""
     from google.genai import types
+    out = [types.Content(role="model" if m["role"] == "assistant" else "user",
+                         parts=[types.Part(text=m["content"])]) for m in history]
+    if audio:
+        data, mime = audio
+        out.append(types.Content(role="user", parts=[
+            types.Part.from_bytes(data=data, mime_type=mime),
+            types.Part(text="(This recording is the student's latest turn.)"),
+        ]))
+    return out
 
-    # Gemini calls the AI's turns "model" rather than "assistant".
-    contents = [
-        types.Content(
-            role="model" if m["role"] == "assistant" else "user",
-            parts=[types.Part(text=m["content"])],
-        )
-        for m in messages
-    ]
-    cfg = types.GenerateContentConfig(
+
+def _config(task, system=None, json_output=False, temperature=0.7):
+    from google.genai import types
+    return types.GenerateContentConfig(
         system_instruction=system,
         temperature=temperature,
         response_mime_type="application/json" if json_output else None,
+        thinking_config=types.ThinkingConfig(thinking_level=config.THINKING[task]),
     )
-    resp = _gemini_client().models.generate_content(model=model, contents=contents, config=cfg)
-
-    usage = resp.usage_metadata
-    tin = usage.prompt_token_count or 0
-    # "Thinking" tokens are billed as output, so count them too.
-    tout = (usage.candidates_token_count or 0) + (usage.thoughts_token_count or 0)
-    return (resp.text or "").strip(), tin, tout
 
 
-def _call_fake(task, messages):
-    """Offline stand-in used only for testing the app without an API key."""
-    if task == "grade":
-        return ('{"deal_reached": true, "price_per_kg": 41, "monthly_kg": 200, "months": 6, '
-                '"payment_terms": "30 days", "score": 6, "summary": "Test feedback.", '
-                '"strengths": ["Opened with a clear number"], '
-                '"improvements": ["Ask what the supplier needs before conceding"], '
-                '"missed_opportunity": "Faster payment could have lowered the price."}'), 900, 150
-    moods = ["neutral", "thinking", "pleased", "firm"]
-    mood = moods[len(messages) // 2 % 4]
-    return (f"(test reply {len(messages)}) Our standard price is QAR 52 per kg, "
-            f"but I'm listening.\n[mood: {mood}]"), 400, 30
+def _usage_from(meta):
+    if not meta:
+        return 0, 0
+    tin = meta.prompt_token_count or 0
+    tout = (meta.candidates_token_count or 0) + (meta.thoughts_token_count or 0)  # thinking is billed
+    return tin, tout
 
 
 # ---------------------------------------------------------------------------
-# Voice: speech-to-text and text-to-speech
+# Streaming chat
 # ---------------------------------------------------------------------------
-TRANSCRIBE_PROMPT = (
-    "Transcribe this recording exactly as spoken. It is a business negotiation "
-    "and may be in English or Arabic. Return only the transcript, with no notes. "
-    "If nothing intelligible is said, return an empty string."
-)
-
-
-def transcribe(audio_bytes, mime_type, session_id):
-    """Student's voice -> text. Uses the same chat model, so it is cheap and logged."""
-    model = config.MODELS[config.TRANSCRIBE_TASK]
+async def chat_stream(system, history, session_id, audio=None, usage=None, temperature=0.7):
+    """
+    Async generator of text chunks. Pass a Usage object to have it filled in at the end.
+    audio: optional (bytes, mime) - the model hears it directly, saving a separate
+    transcription call (the system prompt asks it to write down what it heard first).
+    """
+    model = config.MODELS["chat"]
+    usage = usage if usage is not None else Usage()
     start = time.time()
+    if fake_mode():
+        async for chunk in _fake_chat(history, audio):
+            yield chunk
+        usage.input_tokens, usage.output_tokens = 500, 40
+    else:
+        last_err = None
+        for attempt in range(config.RETRIES + 1):
+            try:
+                sent_any = False
+                meta = None
+                stream = await _gemini().aio.models.generate_content_stream(
+                    model=model, contents=_contents(history, audio),
+                    config=_config("chat", system, temperature=temperature))
+                async for chunk in stream:
+                    if chunk.usage_metadata:
+                        meta = chunk.usage_metadata
+                    if chunk.text:
+                        sent_any = True
+                        yield chunk.text
+                usage.input_tokens, usage.output_tokens = _usage_from(meta)
+                last_err = None
+                break
+            except ModelUnavailable:
+                raise
+            except Exception as e:
+                last_err = e
+                _log(session_id, "chat", model, Usage(seconds=round(time.time() - start, 2)),
+                     f"error:{type(e).__name__}")
+                if sent_any or attempt == config.RETRIES:   # can't retry half a reply
+                    raise ModelUnavailable(str(e))
+                await asyncio.sleep(1)
+        if last_err:
+            raise ModelUnavailable(str(last_err))
+
+    usage.cost_usd = estimate_cost(model, usage.input_tokens, usage.output_tokens)
+    usage.seconds = round(time.time() - start, 2)
+    _log(session_id, "chat", model, usage, "ok")
+
+
+async def _fake_chat(history, audio):
+    turns = sum(1 for m in history if m["role"] == "user") + (1 if audio else 0)
+    moods = ["firm", "thinking", "firm", "pleased", "neutral"]
+    offer = max(46, 52 - max(0, turns - 1) * 2)
+    text = ""
+    if audio:
+        text += "Heard: I can offer forty riyals per kilo if we sign for six months.\n"
+    text += (f"[mood: {moods[turns % len(moods)]}] [offer: {offer}]\n"
+             f"I hear you. My price is {offer} riyals per kilo, and that reflects the quality. "
+             f"What can you offer me in return?")
+    for i in range(0, len(text), 12):            # stream in small pieces like the real thing
+        await asyncio.sleep(0.01)
+        yield text[i:i + 12]
+
+
+# ---------------------------------------------------------------------------
+# One-shot JSON (grading, drafting)
+# ---------------------------------------------------------------------------
+async def complete_json(task, system, user_text, session_id):
+    model = config.MODELS[task]
+    start = time.time()
+    if fake_mode():
+        data, tin, tout = _fake_json(task), 1200, 300
+    else:
+        last_err = None
+        for attempt in range(config.RETRIES + 1):
+            try:
+                from google.genai import types
+                resp = await _gemini().aio.models.generate_content(
+                    model=model,
+                    contents=[types.Content(role="user", parts=[types.Part(text=user_text)])],
+                    config=_config(task, system, json_output=True, temperature=0.3))
+                raw = re.sub(r"^```(?:json)?|```$", "", (resp.text or "").strip()).strip()
+                data = json.loads(raw)
+                tin, tout = _usage_from(resp.usage_metadata)
+                last_err = None
+                break
+            except Exception as e:
+                last_err = e
+                _log(session_id, task, model, Usage(seconds=round(time.time() - start, 2)),
+                     f"error:{type(e).__name__}")
+                if attempt < config.RETRIES:
+                    await asyncio.sleep(1)
+        if last_err:
+            raise ModelUnavailable(str(last_err))
+    usage = Usage(tin, tout, estimate_cost(model, tin, tout), round(time.time() - start, 2))
+    _log(session_id, task, model, usage, "ok")
+    return data, usage
+
+
+def _fake_json(task):
+    if task == "draft":
+        return {"title": "Asking a landlord to lower rent", "summary": "Renegotiate an office lease.",
+                "category": "negotiation", "difficulty": "medium",
+                "brief": "You run a small design studio and want lower rent when your lease renews.",
+                "goal": "Agree a lower rent or better terms by showing value as a tenant.",
+                "character": {"name": "Faisal", "role": "Property Manager, Dunes Real Estate", "look": "man-glasses"},
+                "opening": "Good to see you. I understand your lease is up for renewal soon.",
+                "persona": "Practical and polite, but protective of the building's income.",
+                "private_info": "Two other units in the building are empty.",
+                "rubric": ["Prepared with market data", "Asked about the landlord's situation",
+                           "Proposed creative terms", "Confirmed the agreement clearly"]}
+    return {"overall_score": 6, "summary": "Test feedback: a reasonable start with room to improve.",
+            "criteria": [{"name": "Opening", "score": 3, "comment": "Clear first offer."},
+                         {"name": "Questions", "score": 2, "comment": "Few questions about their side."}],
+            "strengths": ["Opened with a clear number"],
+            "improvements": ["Ask what the other side needs before conceding"],
+            "missed_opportunity": "Offering faster payment could have unlocked a lower price.",
+            "outcome": {"reached": True, "value": 46, "description": "Agreed at QAR 46/kg on 30-day terms."}}
+
+
+# ---------------------------------------------------------------------------
+# Speech to text (fallback only: normally the chat model hears the audio directly)
+# ---------------------------------------------------------------------------
+async def transcribe(audio, mime, session_id):
+    model = config.MODELS["chat"]
+    start = time.time()
+    if fake_mode():
+        return "I can offer forty riyals per kilo if we sign for six months."
+    from google.genai import types
     try:
-        if os.getenv("LLM_PROVIDER") == "fake":
-            text, tin, tout = "I can offer 40 riyals per kilo if we sign for six months.", 300, 20
-        else:
-            from google.genai import types
-            resp = _gemini_client().models.generate_content(
-                model=model,
-                contents=[types.Content(role="user", parts=[
-                    types.Part.from_bytes(data=audio_bytes, mime_type=mime_type),
-                    types.Part(text=TRANSCRIBE_PROMPT),
-                ])],
-                config=types.GenerateContentConfig(temperature=0),
-            )
-            usage = resp.usage_metadata
-            tin = usage.prompt_token_count or 0
-            tout = (usage.candidates_token_count or 0) + (usage.thoughts_token_count or 0)
-            text = (resp.text or "").strip().strip('"')
-    except ModelUnavailable:
-        raise
+        resp = await _gemini().aio.models.generate_content(
+            model=model,
+            contents=[types.Content(role="user", parts=[
+                types.Part.from_bytes(data=audio, mime_type=mime),
+                types.Part(text="Transcribe this recording exactly. It may be English or Arabic. "
+                                "Return only the transcript, or an empty string if nothing is said.")])],
+            config=_config("chat", temperature=0))
     except Exception as e:
-        _log_call(session_id, "transcribe", model,
-                  ModelReply("", False, seconds=round(time.time() - start, 2)),
-                  status=f"error:{type(e).__name__}")
+        _log(session_id, "transcribe", model, Usage(seconds=round(time.time() - start, 2)),
+             f"error:{type(e).__name__}")
         raise ModelUnavailable(str(e))
-
-    reply = ModelReply(text, True, tin, tout, estimate_cost(model, tin, tout),
-                       round(time.time() - start, 2))
-    _log_call(session_id, "transcribe", model, reply, status="ok")
-    return reply
-
-
-@dataclass
-class Speech:
-    audio: bytes
-    mime_type: str
-    provider: str
-    cost_usd: float = 0.0
+    tin, tout = _usage_from(resp.usage_metadata)
+    _log(session_id, "transcribe", model,
+         Usage(tin, tout, estimate_cost(model, tin, tout), round(time.time() - start, 2)), "ok")
+    return (resp.text or "").strip().strip('"')
 
 
-def speak(text, lang, mood, session_id):
-    """
-    Text -> audio. Tries each provider in config.TTS_PROVIDERS in order.
-    Returns None if they all fail: the caller then simply shows text.
-    """
-    if os.getenv("LLM_PROVIDER") == "fake":
-        return Speech(_fake_speech(text), "audio/wav", "fake")
-
+# ---------------------------------------------------------------------------
+# Text to speech
+# ---------------------------------------------------------------------------
+async def speak(text, lang, gender, mood, session_id):
+    """Returns (audio_bytes, mime, cost) or None if every provider fails."""
+    if fake_mode():
+        return _fake_speech(text), "audio/wav", 0.0
     for provider in config.TTS_PROVIDERS:
-        start = time.time()
         model = config.GEMINI_TTS_MODEL if provider == "gemini" else "edge-tts"
+        start = time.time()
         try:
-            if provider == "gemini":
-                audio, mime = _tts_gemini(text, mood)
-            elif provider == "edge":
-                audio, mime = _tts_edge(text, lang)
+            if provider == "edge":
+                audio, mime = await _tts_edge(text, lang, gender)
+            elif provider == "gemini":
+                audio, mime = await _tts_gemini(text, gender, mood)
             else:
                 continue
-
-            # TTS doesn't report tokens the way chat does, so we estimate:
-            # ~4 characters per input token, ~25 audio tokens per second of speech.
-            seconds_of_speech = len(text) / 14
-            tin, tout = len(text) // 4, int(seconds_of_speech * 25)
-            cost = estimate_cost(model, tin, tout)
-            _log_call(session_id, "speak", model,
-                      ModelReply("", True, tin, tout, cost, round(time.time() - start, 2)),
-                      status="ok")
-            return Speech(audio, mime, provider, cost)
+            # TTS doesn't report tokens like chat does, so estimate:
+            # ~4 characters per input token, ~25 audio tokens per second, ~14 characters per second.
+            tin, tout = len(text) // 4, int(len(text) / 14 * 25)
+            usage = Usage(tin, tout, estimate_cost(model, tin, tout), round(time.time() - start, 2))
+            _log(session_id, "speak", model, usage, "ok")
+            return audio, mime, usage.cost_usd
         except Exception as e:
-            _log_call(session_id, "speak", model,
-                      ModelReply("", False, seconds=round(time.time() - start, 2)),
-                      status=f"error:{type(e).__name__}")
+            _log(session_id, "speak", model, Usage(seconds=round(time.time() - start, 2)),
+                 f"error:{type(e).__name__}")
     return None
 
 
-def _tts_gemini(text, mood):
-    import base64
-    style = config.VOICE_STYLES.get(mood, config.VOICE_STYLES["neutral"])
-    result = _gemini_client().interactions.create(
-        model=config.GEMINI_TTS_MODEL,
-        input=[{
-            "type": "user_input",
-            "content": [{
-                "type": "text",
-                "text": text,
-                "annotations": [{"type": "speech_metadata", "style": style}],
-            }],
-        }],
-        response_format={"type": "audio"},
-        generation_config={"speech_config": [{"voice": config.GEMINI_VOICE}]},
-    )
-    data = result.output_audio.data
-    audio = base64.b64decode(data) if isinstance(data, str) else data
-    if not audio:
-        raise RuntimeError("empty audio")
-    return audio, "audio/wav"   # 24 kHz mono WAV, per Google's docs
-
-
-def _tts_edge(text, lang):
-    import asyncio
+async def _tts_edge(text, lang, gender):
     import edge_tts
+    voice = config.VOICES["edge"][gender].get(lang, config.VOICES["edge"][gender]["en"])
 
     async def run():
         chunks = []
-        comm = edge_tts.Communicate(text, config.EDGE_VOICES.get(lang, config.EDGE_VOICES["en"]))
-        async for part in comm.stream():
+        async for part in edge_tts.Communicate(text, voice, rate="+5%").stream():
             if part["type"] == "audio":
                 chunks.append(part["data"])
         return b"".join(chunks)
 
-    audio = asyncio.run(asyncio.wait_for(run(), timeout=config.REQUEST_TIMEOUT_SECONDS))
+    audio = await asyncio.wait_for(run(), timeout=config.REQUEST_TIMEOUT_SECONDS)
     if not audio:
         raise RuntimeError("empty audio")
     return audio, "audio/mpeg"
 
 
-def _fake_speech(text):
-    """A humming WAV with syllable-like pulses, so the avatar's mouth can be tested offline."""
-    import io
-    import math
-    import struct
-    import wave
+async def _tts_gemini(text, gender, mood):
+    style = config.VOICE_STYLES.get(mood, config.VOICE_STYLES["neutral"])
+    result = await _gemini().aio.interactions.create(
+        model=config.GEMINI_TTS_MODEL,
+        input=[{"type": "user_input", "content": [{
+            "type": "text", "text": text,
+            "annotations": [{"type": "speech_metadata", "style": style}]}]}],
+        response_format={"type": "audio"},
+        generation_config={"speech_config": [{"voice": config.VOICES["gemini"][gender]}]},
+    )
+    data = result.output_audio.data
+    audio = base64.b64decode(data) if isinstance(data, str) else data
+    if not audio:
+        raise RuntimeError("empty audio")
+    return audio, "audio/wav"
 
-    rate = 16000
-    seconds = min(6.0, max(1.5, len(text) / 14))
+
+def _fake_speech(text):
+    """A hum with syllable-like pulses, so lip-sync can be tested without a voice service."""
+    import io, math, struct, wave
+    rate, seconds = 16000, min(5.0, max(1.0, len(text) / 16))
     frames = bytearray()
     for i in range(int(rate * seconds)):
-        t_ = i / rate
-        envelope = max(0.0, math.sin(2 * math.pi * 3.5 * t_)) ** 2   # ~3.5 "syllables" a second
-        sample = 0.4 * envelope * math.sin(2 * math.pi * 160 * t_)
-        frames += struct.pack("<h", int(sample * 32767))
+        t = i / rate
+        env = max(0.0, math.sin(2 * math.pi * 3.5 * t)) ** 2
+        frames += struct.pack("<h", int(0.4 * env * math.sin(2 * math.pi * 160 * t) * 32767))
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(rate)
-        w.writeframes(bytes(frames))
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate); w.writeframes(bytes(frames))
     return buf.getvalue()
 
 
 # ---------------------------------------------------------------------------
-# Logging: one CSV row per call
+# Logging: one CSV row per call (numbers only, never content)
 # ---------------------------------------------------------------------------
 CALLS_LOG = os.path.join(config.LOG_DIR, "model_calls.csv")
-CALLS_FIELDS = ["timestamp", "session_id", "task", "model", "status",
-                "input_tokens", "output_tokens", "cost_usd", "seconds"]
+FIELDS = ["timestamp", "session_id", "task", "model", "status",
+          "input_tokens", "output_tokens", "cost_usd", "seconds"]
 
 
-def _log_call(session_id, task, model, reply, status):
+def _log(session_id, task, model, usage, status):
     os.makedirs(config.LOG_DIR, exist_ok=True)
-    new_file = not os.path.exists(CALLS_LOG)
+    new = not os.path.exists(CALLS_LOG)
     with open(CALLS_LOG, "a", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=CALLS_FIELDS)
-        if new_file:
+        w = csv.DictWriter(f, fieldnames=FIELDS)
+        if new:
             w.writeheader()
-        w.writerow({
-            "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "session_id": session_id,
-            "task": task,
-            "model": model,
-            "status": status,
-            "input_tokens": reply.input_tokens,
-            "output_tokens": reply.output_tokens,
-            "cost_usd": f"{reply.cost_usd:.6f}",
-            "seconds": reply.seconds,
-        })
+        w.writerow({"timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                    "session_id": session_id, "task": task, "model": model, "status": status,
+                    "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens,
+                    "cost_usd": f"{usage.cost_usd:.6f}", "seconds": usage.seconds})

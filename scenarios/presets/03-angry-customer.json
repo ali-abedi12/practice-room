@@ -1,0 +1,27 @@
+{
+  "id": "angry-customer",
+  "category": "customer-service",
+  "difficulty": "medium",
+  "title": {"en": "Upset customer", "ar": "عميل غاضب"},
+  "summary": {"en": "A customer's catering order arrived late and incomplete. Calm things down and fix it.",
+              "ar": "وصل طلب الضيافة لأحد العملاء متأخرًا وناقصًا. هدّئ الموقف وعالج المشكلة."},
+  "brief": {"en": "You're the customer service manager at Saffron Table Catering. Khalid ordered catering for 40 guests at a family celebration last night. It arrived 50 minutes late and two of the six dishes were missing. He's called and asked to speak to a manager. Resolve the situation and keep him as a customer.",
+            "ar": "أنت مدير خدمة العملاء في شركة مائدة الزعفران للضيافة. طلب خالد ضيافة لأربعين ضيفًا في مناسبة عائلية الليلة الماضية. وصل الطلب متأخرًا 50 دقيقة وكان طبقان من أصل ستة ناقصين. اتصل وطلب التحدّث إلى المدير. عالج الموقف وحافظ عليه كعميل."},
+  "goal": "Listen without interrupting, acknowledge the impact on him, apologise sincerely without making excuses, ask what would make it right, offer a concrete and proportionate remedy, and agree clear next steps.",
+  "character": {"name": {"en": "Khalid", "ar": "خالد"},
+                "role": {"en": "Customer, Saffron Table Catering", "ar": "عميل، مائدة الزعفران للضيافة"},
+                "look": "man-clean"},
+  "opening": {"en": "Finally, a manager. Do you know what happened last night? I was embarrassed in front of my whole family.",
+              "ar": "أخيرًا، المدير. هل تعرف ما حدث الليلة الماضية؟ لقد أُحرجت أمام عائلتي كلها."},
+  "persona": "You are upset and embarrassed, not abusive. You start frustrated and interrupt if you hear excuses ('the traffic', 'the kitchen was busy') or company policy. You calm down noticeably when the manager lets you explain, repeats back what happened, and apologises sincerely. You don't name your price; you want them to ask what would make it right. If they offer something small and generic too early, say it isn't about a voucher. If they handle it well, end warmer and say you'd give them another chance.",
+  "private_info": "What you actually want: an acknowledgement that it ruined the evening, a real apology, a refund for the two missing dishes, and something meaningful for the next order (for example 25% off). You've already written a negative review that you haven't posted yet. You'll post it if you get excuses.",
+  "rubric": [
+    "Let the customer speak and showed active listening",
+    "Acknowledged the impact and apologised without excuses",
+    "Asked what would make it right before offering a fix",
+    "Offered a concrete, proportionate remedy",
+    "Agreed clear next steps and ended on a positive note"
+  ],
+  "reveal": {"en": "Khalid wanted acknowledgement, a sincere apology, a refund for the two missing dishes and a meaningful discount on his next order. He had a negative review ready to post if he heard excuses.",
+             "ar": "كان خالد يريد اعترافًا بالمشكلة، واعتذارًا صادقًا، واسترداد قيمة الطبقين الناقصين، وخصمًا مجديًا على طلبه القادم. وكان لديه تقييم سلبي جاهز للنشر إذا سمع أعذارًا."}
+}

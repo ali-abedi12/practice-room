@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Practice Room</title>
+  <meta name="description" content="Rehearse business conversations with AI, by voice or text.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%230F5C8C'/%3E%3Cpath d='M9 12h14v8H15l-4 4v-4H9z' fill='white'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main" data-i18n="skip">Skip to main content</a>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="#/library">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="28" height="28"><circle cx="16" cy="16" r="15" fill="currentColor"/><path d="M9 12h14v8H15l-4 4v-4H9z" fill="#fff"/></svg>
+        </span>
+        <span class="brand-text"><span data-i18n="app_name">Practice Room</span><span class="brand-tag" data-i18n="app_tagline">Rehearse business conversations with AI</span></span>
+      </a>
+      <nav class="site-nav" data-i18n-aria="nav_label" aria-label="Main">
+        <ul>
+          <li><a href="#/library" data-route="library" data-i18n="nav_library">Scenarios</a></li>
+          <li><a href="#/create" data-route="create" data-i18n="nav_create">Create scenario</a></li>
+          <li><a href="#/insights" data-route="insights" data-i18n="nav_insights">Insights</a></li>
+        </ul>
+      </nav>
+      <div class="lang-switch">
+        <label for="lang-select" data-i18n="language">Language</label>
+        <select id="lang-select">
+          <option value="en" lang="en">English</option>
+          <option value="ar" lang="ar">العربية</option>
+        </select>
+      </div>
+    </div>
+  </header>
+
+  <main id="main" tabindex="-1"></main>
+
+  <!-- Screen-reader announcements: one polite region for updates, one assertive for errors -->
+  <div id="announce" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
+  <div id="announce-alert" class="visually-hidden" role="alert" aria-atomic="true"></div>
+
+  <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>

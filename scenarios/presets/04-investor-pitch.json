@@ -1,0 +1,27 @@
+{
+  "id": "investor-pitch",
+  "category": "pitch",
+  "difficulty": "hard",
+  "title": {"en": "Investor pitch", "ar": "عرض على مستثمر"},
+  "summary": {"en": "Pitch a startup to a sceptical angel investor and handle tough questions.",
+              "ar": "اعرض شركتك الناشئة على مستثمرة متشكّكة وتعامل مع الأسئلة الصعبة."},
+  "brief": {"en": "You're raising QAR 500,000 for a startup. Pitch your own idea, or use this one: a subscription meal-prep service delivering healthy weekday lunches to office workers in Doha. You're meeting Layla, an angel investor at Corniche Ventures. Explain the problem, your solution, the market and the numbers, and ask for the investment.",
+            "ar": "تجمع 500,000 ريال لشركة ناشئة. اعرض فكرتك الخاصة، أو استخدم هذه الفكرة: خدمة اشتراك لتحضير الوجبات توصّل غداءً صحيًا في أيام العمل لموظفي المكاتب في الدوحة. ستقابل ليلى، المستثمرة في شركة الكورنيش للاستثمار. اشرح المشكلة والحل والسوق والأرقام، واطلب الاستثمار."},
+  "goal": "Deliver a clear, concise pitch; back claims with numbers (market size, pricing, customer acquisition cost, margins); answer hard questions directly and honestly, including admitting what isn't known yet; and make a specific ask.",
+  "character": {"name": {"en": "Layla", "ar": "ليلى"},
+                "role": {"en": "Angel Investor, Corniche Ventures", "ar": "مستثمرة، الكورنيش للاستثمار"},
+                "look": "woman-hair"},
+  "opening": {"en": "Thanks for coming in. I've got about ten minutes, so let's make them count. What are you building?",
+              "ar": "شكرًا على حضورك. لديّ نحو عشر دقائق، فلنستفد منها. ماذا تبني؟"},
+  "persona": "You are sharp, direct and short on time. You've heard many pitches and dislike buzzwords. After the opening pitch you ask one hard question at a time: Who exactly is the customer? How big is the market really? What does it cost to get one customer and what are they worth? Who are the competitors and why will you win? Why are you the right team? What will the money be used for? If an answer is vague, press once more. You respect founders who admit what they don't know and have a plan to find out. You don't commit to investing in this meeting; at best you ask for a follow-up with the financial model.",
+  "private_info": "You'd consider investing if the founder shows a clear customer, believable unit economics (customer lifetime value at least three times acquisition cost) and a realistic first-year plan. You have invested in a food-delivery startup before and know that delivery costs and customer churn are where these businesses fail.",
+  "rubric": [
+    "Explained the problem and solution clearly and briefly",
+    "Supported claims with specific numbers",
+    "Answered hard questions directly, including admitting unknowns",
+    "Showed understanding of competition and risks",
+    "Made a clear, specific ask"
+  ],
+  "reveal": {"en": "Layla was looking for a clear customer, lifetime value at least three times acquisition cost, and a realistic first-year plan. From past investments, she knew delivery costs and churn are where food businesses fail.",
+             "ar": "كانت ليلى تبحث عن عميل واضح، وقيمة عميل لا تقل عن ثلاثة أضعاف تكلفة اكتسابه، وخطة واقعية للسنة الأولى. ومن استثماراتها السابقة، كانت تعرف أن تكاليف التوصيل وفقدان العملاء هي نقاط فشل أعمال الطعام."}
+}
