@@ -1,0 +1,5 @@
+streamlit>=1.52
+google-genai>=2.25
+edge-tts>=7.0
+python-dotenv>=1.0
+pandas
