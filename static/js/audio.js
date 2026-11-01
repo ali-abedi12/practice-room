@@ -121,7 +121,7 @@ export class Player {
 const TARGET_RATE = 16000;        // speech models don't need more; keeps uploads small
 
 export class Mic {
-  constructor({ onUtterance, onState, onLevel, silenceMs = 800 }) {
+  constructor({ onUtterance, onState, onLevel, silenceMs = 1500 }) {
     this.onUtterance = onUtterance;
     this.onState = onState || (() => {});
     this.onLevel = onLevel || (() => {});
